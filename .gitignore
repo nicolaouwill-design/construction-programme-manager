@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# Uploads (user files — not committed)
+uploads/
+
+# OS
+.DS_Store
