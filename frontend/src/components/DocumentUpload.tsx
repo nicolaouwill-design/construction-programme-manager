@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { getDocuments, uploadDocument, generateProgramme } from "../api";
+import {
+  getDocuments, uploadDocument, generateProgramme,
+  deleteDocument, cancelDocument, reprocessDocument,
+} from "../api";
 
 interface Doc {
   id: number;
@@ -15,6 +18,43 @@ interface Props {
   onProcessed: () => void;
 }
 
+const STATUS_ORDER = ["uploaded", "processing", "processed", "cancelled", "error"];
+
+function statusBadge(s: string) {
+  const map: Record<string, { label: string; cls: string }> = {
+    uploaded:   { label: "Queued",      cls: "badge-queued" },
+    processing: { label: "Analysing",   cls: "badge-processing" },
+    processed:  { label: "Processed",   cls: "badge-processed" },
+    cancelled:  { label: "Cancelled",   cls: "badge-cancelled" },
+    error:      { label: "Error",       cls: "badge-error" },
+  };
+  const b = map[s] ?? { label: s, cls: "" };
+  return <span className={`doc-badge ${b.cls}`}>{b.label}</span>;
+}
+
+function fileIcon(filename: string, fileType: string) {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "📄";
+  if (["dwg", "dxf"].includes(ext)) return "📐";
+  if (["xlsx", "xls", "csv"].includes(ext)) return "📊";
+  if (["docx", "doc"].includes(ext)) return "📝";
+  if (["mpp", "xml"].includes(ext)) return "📅";
+  if (fileType?.includes("image")) return "🖼";
+  return "📁";
+}
+
+function formatSize(bytes: number) {
+  if (!bytes) return "—";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 export default function DocumentUpload({ projectId, onProcessed }: Props) {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -23,12 +63,17 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [actionLoading, setActionLoading] = useState<Record<number, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
 
   const isProcessing = docs.some((d) => d.status === "processing" || d.status === "uploaded");
   const hasProcessed = docs.some((d) => d.status === "processed");
-  const hasError = docs.some((d) => d.status === "error");
+  const processedCount = docs.filter((d) => d.status === "processed").length;
+  const errorCount = docs.filter((d) => d.status === "error").length;
+  const cancelledCount = docs.filter((d) => d.status === "cancelled").length;
+  const processingCount = docs.filter((d) => d.status === "processing" || d.status === "uploaded").length;
 
   const load = async () => {
     try {
@@ -67,6 +112,7 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
     setUploading(false);
     setUploadProgress({});
     if (errors.length) setUploadErrors(errors);
+    if (pollRef.current) clearTimeout(pollRef.current);
     load();
   };
 
@@ -75,7 +121,6 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
     setGenerateError("");
     try {
       await generateProgramme(projectId);
-      // Poll until processing completes
       const poll = () => {
         getDocuments(projectId).then((res) => {
           setDocs(res.data);
@@ -95,23 +140,53 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
     }
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const handleDelete = async (doc: Doc) => {
+    if (!confirm(`Delete "${doc.filename}"? This cannot be undone.`)) return;
+    setActionLoading((p) => ({ ...p, [doc.id]: "delete" }));
+    try {
+      await deleteDocument(projectId, doc.id);
+      setDocs((prev) => prev.filter((d) => d.id !== doc.id));
+    } catch {}
+    setActionLoading((p) => { const n = { ...p }; delete n[doc.id]; return n; });
   };
 
-  const statusIcon = (s: string) =>
-    ({ uploaded: "⏳", processing: "🔄", processed: "✅", error: "❌" }[s] ?? "📄");
+  const handleCancel = async (doc: Doc) => {
+    setActionLoading((p) => ({ ...p, [doc.id]: "cancel" }));
+    try {
+      await cancelDocument(projectId, doc.id);
+      setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, status: "cancelled" } : d));
+    } catch {}
+    setActionLoading((p) => { const n = { ...p }; delete n[doc.id]; return n; });
+  };
 
-  const statusLabel = (s: string) =>
-    ({ uploaded: "Queued", processing: "Analysing…", processed: "Processed", error: "Error" }[s] ?? s);
+  const handleReprocess = async (doc: Doc) => {
+    setActionLoading((p) => ({ ...p, [doc.id]: "reprocess" }));
+    try {
+      await reprocessDocument(projectId, doc.id);
+      setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, status: "uploaded" } : d));
+      if (pollRef.current) clearTimeout(pollRef.current);
+      load();
+    } catch {}
+    setActionLoading((p) => { const n = { ...p }; delete n[doc.id]; return n; });
+  };
 
-  const totalSize = docs.reduce((s, d) => s + (d.file_size || 0), 0);
-  const processedCount = docs.filter((d) => d.status === "processed").length;
+  const handleDeleteAllErrors = async () => {
+    const errorDocs = docs.filter((d) => d.status === "error" || d.status === "cancelled");
+    if (!errorDocs.length) return;
+    if (!confirm(`Delete ${errorDocs.length} failed/cancelled document(s)?`)) return;
+    for (const doc of errorDocs) {
+      try { await deleteDocument(projectId, doc.id); } catch {}
+    }
+    setDocs((prev) => prev.filter((d) => d.status !== "error" && d.status !== "cancelled"));
+  };
+
+  const filteredDocs = statusFilter === "all"
+    ? [...docs].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status))
+    : docs.filter((d) => d.status === statusFilter);
 
   return (
-    <div className="doc-upload">
-      {/* Upload zone */}
+    <div className="doc-control">
+      {/* ── Upload Zone ── */}
       <div
         className={`drop-zone ${dragOver ? "drop-zone-active" : ""} ${uploading ? "drop-zone-uploading" : ""}`}
         onClick={() => !uploading && fileRef.current?.click()}
@@ -130,122 +205,211 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
         {uploading ? (
           <>
             <div className="drop-icon">⏳</div>
-            <p><strong>Uploading files…</strong></p>
+            <p><strong>Uploading…</strong></p>
             {Object.entries(uploadProgress).map(([name, pct]) => (
-              <div key={name} style={{ width: "100%", maxWidth: 400, marginTop: 6 }}>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                <div style={{ height: 4, background: "#e2e8f0", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: `${pct}%`, background: "#1d4ed8", borderRadius: 2, transition: "width 0.2s" }} />
+              <div key={name} className="upload-progress-row">
+                <div className="upload-progress-name">{name}</div>
+                <div className="upload-progress-bar">
+                  <div className="upload-progress-fill" style={{ width: `${pct}%` }} />
                 </div>
+                <div className="upload-progress-pct">{pct}%</div>
               </div>
             ))}
           </>
         ) : (
           <>
             <div className="drop-icon">📂</div>
-            <p><strong>Click to upload</strong> or drag & drop</p>
-            <p className="drop-hint">
-              PDFs, Drawings (DWG), Specifications, Schedules — any file size<br />
-              Upload multiple files at once — the more you upload, the better the programme
-            </p>
+            <p><strong>Click to upload</strong> or drag &amp; drop</p>
+            <p className="drop-hint">PDFs, Drawings, Specifications, Schedules, Contracts — any size, multiple files</p>
           </>
         )}
       </div>
 
       {/* Upload errors */}
       {uploadErrors.length > 0 && (
-        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: "#dc2626" }}>
-          <strong>Upload errors:</strong>
-          <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
-            {uploadErrors.map((e, i) => <li key={i}>{e}</li>)}
-          </ul>
+        <div className="alert alert-error">
+          <strong>Upload failed:</strong>
+          <ul>{uploadErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
         </div>
       )}
 
-      {/* Stats */}
+      {/* ── Stats Bar ── */}
       {docs.length > 0 && (
-        <div style={{ display: "flex", gap: "12px", fontSize: "11px", color: "#64748b", padding: "4px 0" }}>
-          <span>📄 <strong>{docs.length}</strong> file{docs.length > 1 ? "s" : ""}</span>
-          <span>💾 <strong>{formatSize(totalSize)}</strong> total</span>
-          {processedCount > 0 && <span style={{ color: "#16a34a" }}>✅ <strong>{processedCount}</strong> analysed</span>}
+        <div className="doc-stats-bar">
+          <div className="doc-stat">
+            <span className="doc-stat-val">{docs.length}</span>
+            <span className="doc-stat-label">Total</span>
+          </div>
+          <div className="doc-stat">
+            <span className="doc-stat-val" style={{ color: "#16a34a" }}>{processedCount}</span>
+            <span className="doc-stat-label">Processed</span>
+          </div>
+          {processingCount > 0 && (
+            <div className="doc-stat">
+              <span className="doc-stat-val" style={{ color: "#2563eb" }}>{processingCount}</span>
+              <span className="doc-stat-label">Analysing</span>
+            </div>
+          )}
+          {errorCount > 0 && (
+            <div className="doc-stat">
+              <span className="doc-stat-val" style={{ color: "#dc2626" }}>{errorCount}</span>
+              <span className="doc-stat-label">Failed</span>
+            </div>
+          )}
+          {cancelledCount > 0 && (
+            <div className="doc-stat">
+              <span className="doc-stat-val" style={{ color: "#9ca3af" }}>{cancelledCount}</span>
+              <span className="doc-stat-label">Cancelled</span>
+            </div>
+          )}
+          <div style={{ flex: 1 }} />
+          <span className="doc-stat-total-size">{formatSize(docs.reduce((s, d) => s + (d.file_size || 0), 0))}</span>
         </div>
       )}
 
-      {/* AI Status / Generate button */}
+      {/* ── Generate / Action Bar ── */}
       {docs.length > 0 && (
-        <div className="generate-btn-wrap">
+        <div className="doc-action-bar">
           {(isProcessing || generating) ? (
-            <>
-              <button className="btn btn-secondary" style={{ width: "100%", justifyContent: "center" }} disabled>
-                <span style={{ display: "inline-block", animation: "spin 0.8s linear infinite", marginRight: 6 }}>⟳</span>
-                AI is analysing documents…
-              </button>
-              <p className="generate-hint">This may take a few minutes for large files.</p>
-            </>
+            <div className="doc-analysing-row">
+              <span className="doc-spinner-inline" />
+              <span>AI is analysing documents…</span>
+              <span className="doc-analysing-hint">Scroll down to cancel individual files</span>
+            </div>
           ) : (
             <>
-              {hasProcessed && (
-                <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: "#15803d", marginBottom: 8 }}>
-                  ✅ <strong>Documents analysed</strong> — click below to view or regenerate the programme.
-                </div>
-              )}
-              {hasError && (
-                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: "#dc2626", marginBottom: 8 }}>
-                  ⚠ Some documents failed to process. You can still generate a programme from the ones that succeeded.
-                </div>
-              )}
-              {generateError && (
-                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: "#dc2626", marginBottom: 8 }}>
-                  ⚠ {generateError}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
+              {generateError && <div className="alert alert-error">{generateError}</div>}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <button
                   className="btn btn-primary"
-                  style={{ flex: 1, justifyContent: "center" }}
                   onClick={handleGenerate}
                   disabled={processedCount === 0}
                 >
-                  🤖 Generate Programme
+                  Generate Programme
                 </button>
                 {hasProcessed && (
-                  <button
-                    className="btn btn-secondary"
-                    onClick={onProcessed}
-                  >
+                  <button className="btn btn-secondary" onClick={onProcessed}>
                     View Programme →
                   </button>
                 )}
+                {(errorCount > 0 || cancelledCount > 0) && (
+                  <button className="btn btn-ghost btn-danger-ghost" onClick={handleDeleteAllErrors}>
+                    Delete Failed ({errorCount + cancelledCount})
+                  </button>
+                )}
+                {processedCount === 0 && (
+                  <span className="doc-hint-text">Wait for documents to finish processing</span>
+                )}
               </div>
-              {processedCount === 0 && docs.length > 0 && (
-                <p className="generate-hint">Upload and wait for documents to finish processing before generating.</p>
-              )}
             </>
           )}
         </div>
       )}
 
-      {/* Document list */}
+      {/* ── Document Table ── */}
       {docs.length > 0 && (
-        <>
-          <div className="doc-list-title">Uploaded Documents</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {docs.map((doc) => (
-              <div key={doc.id} className={`doc-item doc-${doc.status}`}>
-                <span className="doc-status-icon">{statusIcon(doc.status)}</span>
-                <div className="doc-info">
-                  <div className="doc-name" title={doc.filename}>{doc.filename}</div>
-                  <div className="doc-meta">
-                    {formatSize(doc.file_size)} · {statusLabel(doc.status)}
-                  </div>
-                </div>
-                {(doc.status === "processing" || doc.status === "uploaded") && (
-                  <div className="doc-spinner" />
-                )}
-              </div>
-            ))}
+        <div className="doc-table-wrap">
+          <div className="doc-table-header">
+            <h3 className="doc-table-title">Document Register</h3>
+            <div className="doc-filter-tabs">
+              {["all", "processing", "processed", "error", "cancelled"].map((f) => {
+                const count = f === "all" ? docs.length
+                  : f === "processing" ? processingCount
+                  : f === "processed" ? processedCount
+                  : f === "error" ? errorCount
+                  : cancelledCount;
+                if (count === 0 && f !== "all") return null;
+                return (
+                  <button
+                    key={f}
+                    className={`doc-filter-tab ${statusFilter === f ? "active" : ""}`}
+                    onClick={() => setStatusFilter(f)}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                    <span className="doc-filter-count">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </>
+
+          <table className="doc-table">
+            <thead>
+              <tr>
+                <th className="doc-th">Document</th>
+                <th className="doc-th doc-th-size">Size</th>
+                <th className="doc-th doc-th-date">Uploaded</th>
+                <th className="doc-th doc-th-status">Status</th>
+                <th className="doc-th doc-th-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDocs.map((doc) => {
+                const loading = actionLoading[doc.id];
+                return (
+                  <tr key={doc.id} className={`doc-row doc-row-${doc.status}`}>
+                    <td className="doc-td doc-td-name">
+                      <span className="doc-file-icon">{fileIcon(doc.filename, doc.file_type)}</span>
+                      <span className="doc-filename" title={doc.filename}>{doc.filename}</span>
+                    </td>
+                    <td className="doc-td doc-td-size">{formatSize(doc.file_size)}</td>
+                    <td className="doc-td doc-td-date">{formatDate(doc.uploaded_at)}</td>
+                    <td className="doc-td doc-td-status">
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {statusBadge(doc.status)}
+                        {(doc.status === "processing" || doc.status === "uploaded") && (
+                          <span className="doc-row-spinner" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="doc-td doc-td-actions">
+                      {(doc.status === "processing" || doc.status === "uploaded") && (
+                        <button
+                          className="doc-action-btn doc-btn-cancel"
+                          onClick={() => handleCancel(doc)}
+                          disabled={!!loading}
+                          title="Cancel analysis"
+                        >
+                          {loading === "cancel" ? "…" : "Cancel"}
+                        </button>
+                      )}
+                      {(doc.status === "error" || doc.status === "cancelled") && (
+                        <>
+                          <button
+                            className="doc-action-btn doc-btn-retry"
+                            onClick={() => handleReprocess(doc)}
+                            disabled={!!loading}
+                            title="Retry analysis"
+                          >
+                            {loading === "reprocess" ? "…" : "Retry"}
+                          </button>
+                          <button
+                            className="doc-action-btn doc-btn-delete"
+                            onClick={() => handleDelete(doc)}
+                            disabled={!!loading}
+                            title="Delete document"
+                          >
+                            {loading === "delete" ? "…" : "Delete"}
+                          </button>
+                        </>
+                      )}
+                      {doc.status === "processed" && (
+                        <button
+                          className="doc-action-btn doc-btn-delete"
+                          onClick={() => handleDelete(doc)}
+                          disabled={!!loading}
+                          title="Remove document"
+                        >
+                          {loading === "delete" ? "…" : "Remove"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

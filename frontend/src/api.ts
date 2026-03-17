@@ -90,6 +90,12 @@ export const uploadDocument = (projectId: number, file: File, onProgress?: (pct:
       : undefined,
   });
 };
+export const deleteDocument = (projectId: number, docId: number) =>
+  api.delete(`/api/projects/${projectId}/documents/${docId}`);
+export const cancelDocument = (projectId: number, docId: number) =>
+  api.post(`/api/projects/${projectId}/documents/${docId}/cancel`);
+export const reprocessDocument = (projectId: number, docId: number) =>
+  api.post(`/api/projects/${projectId}/documents/${docId}/reprocess`);
 export const generateProgramme = (projectId: number) =>
   api.post(`/api/projects/${projectId}/documents/generate`);
 

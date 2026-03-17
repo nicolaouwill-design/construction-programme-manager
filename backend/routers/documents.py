@@ -33,6 +33,43 @@ def list_documents(project_id: int, db: Session = Depends(get_db)):
     ]
 
 
+@router.delete("/{project_id}/documents/{doc_id}")
+def delete_document(project_id: int, doc_id: int, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.project_id == project_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        if doc.file_path and os.path.exists(doc.file_path):
+            os.remove(doc.file_path)
+    except Exception:
+        pass
+    db.delete(doc)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/{project_id}/documents/{doc_id}/cancel")
+def cancel_document(project_id: int, doc_id: int, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.project_id == project_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status in ("uploaded", "processing"):
+        doc.status = "cancelled"
+        db.commit()
+    return {"id": doc.id, "status": doc.status}
+
+
+@router.post("/{project_id}/documents/{doc_id}/reprocess")
+def reprocess_document(project_id: int, doc_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.project_id == project_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc.status = "uploaded"
+    db.commit()
+    background_tasks.add_task(process_document, doc.id, project_id)
+    return {"id": doc.id, "status": "uploaded"}
+
+
 @router.post("/{project_id}/documents/generate")
 def generate_programme(
     project_id: int,
@@ -144,6 +181,10 @@ def process_document(doc_id: int, project_id: int):
         if not doc:
             return
 
+        # Respect cancellation — if cancelled before we started, do nothing
+        if doc.status == "cancelled":
+            return
+
         doc.status = "processing"
         db.commit()
 
@@ -159,6 +200,11 @@ def process_document(doc_id: int, project_id: int):
             print(f"PDF extraction failed for doc {doc_id}: {e}\n{traceback.format_exc()}")
             doc.status = "error"
             db.commit()
+            return
+
+        # Respect cancellation before marking processed
+        db.refresh(doc)
+        if doc.status == "cancelled":
             return
 
         # Mark as processed regardless of whether AI generation succeeds
