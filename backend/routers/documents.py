@@ -244,7 +244,7 @@ def generate_programme_from_all_docs(project_id: int, db):
     try:
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=16000,
             messages=[{"role": "user", "content": prompt}]
         )
