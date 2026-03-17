@@ -40,9 +40,23 @@ app.include_router(documents.router)
 app.include_router(export.router)
 
 
+def _migrate_db():
+    """Add any missing columns to existing tables (safe for SQLite)."""
+    from database import engine
+    with engine.connect() as conn:
+        # projects.description (added in v2)
+        try:
+            conn.execute(__import__("sqlalchemy").text("ALTER TABLE projects ADD COLUMN description TEXT"))
+            conn.commit()
+            print("✓ Migration: added projects.description")
+        except Exception:
+            pass  # Column already exists
+
+
 @app.on_event("startup")
 def startup():
     init_db()
+    _migrate_db()
     print("✓ Database initialised")
 
 
