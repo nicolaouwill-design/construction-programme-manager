@@ -7,7 +7,6 @@ __pycache__/
 
 # Node
 node_modules/
-frontend/dist/
 
 # Uploads (user files — not committed)
 uploads/

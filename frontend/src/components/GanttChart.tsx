@@ -231,7 +231,7 @@ export default function GanttChart({
         finish_date: task.end_date ? gantt.date.date_to_str("%d/%m/%y")(task.end_date) : (task.finish_date || ""),
         percent_complete: Math.round((task.progress || 0) * 100),
         resource_names: task.resource_names || "",
-        parent_id: task.parent || undefined,
+        parent_id: task.parent ? Number(task.parent) : undefined,
         indent_level: task.indent_level || 0,
         is_summary: !!task.is_summary,
         is_milestone: !!task.is_milestone,

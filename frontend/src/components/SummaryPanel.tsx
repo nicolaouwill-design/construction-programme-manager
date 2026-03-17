@@ -13,7 +13,7 @@ interface SummaryItem {
   color?: string;
 }
 
-export default function SummaryPanel({ activities, projectName }: Props) {
+export default function SummaryPanel({ activities }: Props) {
   if (activities.length === 0) {
     return (
       <div className="summary-view" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
@@ -85,7 +85,6 @@ export default function SummaryPanel({ activities, projectName }: Props) {
     color: "#1d4ed8",
   }));
 
-  const pc = Math.round((complete.length / Math.max(tasks.length, 1)) * 100);
 
   return (
     <div className="summary-view">
