@@ -79,13 +79,19 @@ export const bulkCreateActivities = (projectId: number, activities: Partial<Acti
 // Documents
 export const getDocuments = (projectId: number) =>
   api.get(`/api/projects/${projectId}/documents`);
-export const uploadDocument = (projectId: number, file: File) => {
+export const uploadDocument = (projectId: number, file: File, onProgress?: (pct: number) => void) => {
   const form = new FormData();
   form.append("file", file);
   return api.post(`/api/projects/${projectId}/documents/upload`, form, {
     headers: { "Content-Type": "multipart/form-data" },
+    timeout: 300000, // 5 minutes for large files
+    onUploadProgress: onProgress
+      ? (e) => { if (e.total) onProgress(Math.round((e.loaded * 100) / e.total)); }
+      : undefined,
   });
 };
+export const generateProgramme = (projectId: number) =>
+  api.post(`/api/projects/${projectId}/documents/generate`);
 
 // Export
 export const exportExcel = (projectId: number) =>

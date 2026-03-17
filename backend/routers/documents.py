@@ -33,6 +33,20 @@ def list_documents(project_id: int, db: Session = Depends(get_db)):
     ]
 
 
+@router.post("/{project_id}/documents/generate")
+def generate_programme(
+    project_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Manually trigger programme regeneration from all uploaded documents."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    background_tasks.add_task(_generate_programme_task, project_id)
+    return {"message": "Programme generation started"}
+
+
 @router.post("/{project_id}/documents/upload")
 async def upload_document(
     project_id: int,
@@ -73,10 +87,33 @@ def extract_pdf_text(file_path: str) -> str:
     text_parts = []
     try:
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
+            for page_num, page in enumerate(pdf.pages):
+                page_content = []
+
+                # Extract regular text
                 text = page.extract_text()
                 if text:
-                    text_parts.append(text)
+                    page_content.append(text)
+
+                # Extract tables (captures structured schedule data)
+                try:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        if not table:
+                            continue
+                        rows = []
+                        for row in table:
+                            if row:
+                                cleaned = [str(cell).strip() if cell else "" for cell in row]
+                                if any(cleaned):
+                                    rows.append(" | ".join(cleaned))
+                        if rows:
+                            page_content.append("[TABLE]\n" + "\n".join(rows) + "\n[/TABLE]")
+                except Exception:
+                    pass
+
+                if page_content:
+                    text_parts.append(f"--- Page {page_num + 1} ---\n" + "\n\n".join(page_content))
     except Exception as e:
         print(f"PDF extraction error: {e}")
     return "\n\n".join(text_parts)
@@ -115,7 +152,7 @@ def process_document(doc_id: int, project_id: int):
         else:
             text = ""
 
-        doc.extracted_text = text[:80000]  # Store first 80k chars
+        doc.extracted_text = text[:200000]  # Store first 200k chars
         db.commit()
 
         # Generate/update programme from all documents
@@ -130,6 +167,16 @@ def process_document(doc_id: int, project_id: int):
             doc.status = "error"
             db.commit()
         print(f"Error processing document {doc_id}: {e}")
+    finally:
+        db.close()
+
+
+def _generate_programme_task(project_id: int):
+    """Background task wrapper that creates its own DB session."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        generate_programme_from_all_docs(project_id, db)
     finally:
         db.close()
 
@@ -159,8 +206,8 @@ def generate_programme_from_all_docs(project_id: int, db):
     if not combined_text.strip():
         return
 
-    # Truncate to fit within context limits (~100k chars)
-    combined_text = combined_text[:100000]
+    # Truncate to fit within context limits (~400k chars)
+    combined_text = combined_text[:400000]
 
     # Determine whether this looks like an existing schedule or raw documents
     schedule_keywords = ["duration", "start date", "finish date", "percent", "critical", "milestone", "programme", "gantt"]

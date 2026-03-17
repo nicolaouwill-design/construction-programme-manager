@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip3 install:*)",
+      "Bash(mkdir -p \"/Users/willnicolaou/Construction Program/backend/routers\")",
+      "Bash(mkdir -p \"/Users/willnicolaou/Construction Program/uploads\")",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(chmod +x \"/Users/willnicolaou/Construction Program/start.sh\")",
+      "Bash(npx tsc:*)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)"
+    ]
+  }
+}

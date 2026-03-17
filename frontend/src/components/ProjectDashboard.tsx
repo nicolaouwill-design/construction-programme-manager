@@ -16,6 +16,7 @@ export default function ProjectDashboard({ onOpen, user, onLogout }: Props) {
   const [newClient, setNewClient] = useState("");
   const [newRevision, setNewRevision] = useState("REV 1");
   const [loading, setLoading] = useState(true);
+  const [createError, setCreateError] = useState("");
 
   const load = async () => {
     try {
@@ -29,12 +30,17 @@ export default function ProjectDashboard({ onOpen, user, onLogout }: Props) {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    const res = await createProject({ name: newName, address: newAddress, client: newClient, revision: newRevision, working_days: 6 });
-    setShowNew(false);
-    setNewName(""); setNewAddress(""); setNewClient(""); setNewRevision("REV 1");
-    load();
-    // Open immediately after creation
-    onOpen(res.data as Project);
+    setCreateError("");
+    try {
+      const res = await createProject({ name: newName, address: newAddress, client: newClient, revision: newRevision, working_days: 6 });
+      setShowNew(false);
+      setNewName(""); setNewAddress(""); setNewClient(""); setNewRevision("REV 1");
+      load();
+      onOpen(res.data as Project);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || "Failed to create project. Please try again.";
+      setCreateError(String(msg));
+    }
   };
 
   const handleDelete = async (e: React.MouseEvent, id: number, name: string) => {
@@ -157,8 +163,13 @@ export default function ProjectDashboard({ onOpen, user, onLogout }: Props) {
                 <input className="field-input" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} placeholder="REV 1" />
               </div>
             </div>
+            {createError && (
+              <div style={{ margin: "0 24px 12px", padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, color: "#dc2626", fontSize: 12 }}>
+                ⚠ {createError}
+              </div>
+            )}
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowNew(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={() => { setShowNew(false); setCreateError(""); }}>Cancel</button>
               <button className="btn btn-primary" onClick={handleCreate} disabled={!newName.trim()}>
                 Create &amp; Upload Documents →
               </button>

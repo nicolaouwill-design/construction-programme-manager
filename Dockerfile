@@ -12,4 +12,4 @@ COPY backend/ ./backend/
 COPY frontend/dist/ ./frontend/dist/
 
 WORKDIR /app/backend
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-keep-alive 300 --limit-max-requests 0
