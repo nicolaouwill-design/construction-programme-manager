@@ -246,13 +246,17 @@ def generate_programme_from_all_docs(project_id: int, db):
     Combine text from all documents for this project and generate
     a comprehensive construction programme using Claude.
     """
+    # Load project for name and description
+    project = db.query(Project).filter(Project.id == project_id).first()
+    project_description = (project.description or "").strip() if project else ""
+
     # Gather all extracted text from this project's documents
     docs = db.query(Document).filter(
         Document.project_id == project_id,
         Document.extracted_text.isnot(None),
     ).all()
 
-    if not docs:
+    if not docs and not project_description:
         return
 
     combined_text = ""
@@ -263,24 +267,23 @@ def generate_programme_from_all_docs(project_id: int, db):
             doc_summaries.append(f"[Document: {doc.filename}]")
             combined_text += f"\n\n=== {doc.filename} ===\n{text}"
 
-    if not combined_text.strip():
+    if not combined_text.strip() and not project_description:
         return
+    # Allow generation from description alone (no uploaded docs)
 
     # Truncate to fit within context limits (~400k chars)
     combined_text = combined_text[:400000]
 
     # Determine whether this looks like an existing schedule or raw documents
     schedule_keywords = ["duration", "start date", "finish date", "percent", "critical", "milestone", "programme", "gantt"]
-    drawing_keywords = ["drawing", "elevation", "plan", "section", "specification", "contract", "scope of works", "preliminaries"]
 
     text_lower = combined_text.lower()
     has_schedule = sum(1 for kw in schedule_keywords if kw in text_lower) >= 3
-    has_drawings = sum(1 for kw in drawing_keywords if kw in text_lower) >= 2
 
     if has_schedule:
-        prompt = _build_extraction_prompt(combined_text, doc_summaries)
+        prompt = _build_extraction_prompt(combined_text, doc_summaries, project_description)
     else:
-        prompt = _build_generation_prompt(combined_text, doc_summaries)
+        prompt = _build_generation_prompt(combined_text, doc_summaries, project_description)
 
     api_key = _load_api_key()
     if not api_key:
@@ -334,9 +337,10 @@ def generate_programme_from_all_docs(project_id: int, db):
         print(f"AI programme generation error for project {project_id}: {e}\n{traceback.format_exc()}")
 
 
-def _build_extraction_prompt(text: str, doc_names: list) -> str:
+def _build_extraction_prompt(text: str, doc_names: list, project_description: str = "") -> str:
+    brief_section = f"\nPROJECT BRIEF (provided by user — use this context to guide extraction):\n{project_description}\n" if project_description else ""
     return f"""You are a construction programme analyst. Extract ALL activities from the following programme document(s) and return them as a JSON array.
-
+{brief_section}
 Documents analysed: {', '.join(doc_names)}
 
 For each activity, extract:
@@ -367,12 +371,14 @@ DOCUMENT TEXT:
 {text}"""
 
 
-def _build_generation_prompt(text: str, doc_names: list) -> str:
-    return f"""You are an expert construction planner. Based on the project documents below, create a detailed, comprehensive construction programme.
+def _build_generation_prompt(text: str, doc_names: list, project_description: str = "") -> str:
+    brief_section = f"\nPROJECT BRIEF (provided by user — prioritise this context when creating the programme):\n{project_description}\n" if project_description else ""
+    doc_section = f"Documents provided: {', '.join(doc_names)}" if doc_names else "No documents provided — use the project brief to generate the programme."
+    return f"""You are an expert construction planner. Based on the project information below, create a detailed, comprehensive construction programme.
+{brief_section}
+{doc_section}
 
-Documents provided: {', '.join(doc_names)}
-
-Generate a FULL, DETAILED construction programme with ALL of the following sections and their constituent activities. Use the documents to inform:
+Generate a FULL, DETAILED construction programme with ALL of the following sections and their constituent activities. Use the documents and project brief to inform:
 - The building's zones, levels, and areas
 - Specific trades and subcontractors mentioned
 - Any programme constraints or milestones

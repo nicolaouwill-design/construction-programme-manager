@@ -43,6 +43,7 @@ class Project(Base):
     revision = Column(String, default="REV 1")
     status_date = Column(String)
     working_days = Column(Integer, default=6)
+    description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = relationship("User", back_populates="projects")

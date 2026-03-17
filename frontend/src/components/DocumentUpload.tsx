@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  getDocuments, uploadDocument, generateProgramme,
+  getDocuments, getProject, updateProject, uploadDocument, generateProgramme,
   deleteDocument, cancelDocument, reprocessDocument,
 } from "../api";
 
@@ -65,8 +65,12 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
   const [generateError, setGenerateError] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [actionLoading, setActionLoading] = useState<Record<number, string>>({});
+  const [description, setDescription] = useState("");
+  const [descSaved, setDescSaved] = useState(false);
+  const [descSaving, setDescSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
 
   const isProcessing = docs.some((d) => d.status === "processing" || d.status === "uploaded");
   const hasProcessed = docs.some((d) => d.status === "processed");
@@ -89,6 +93,28 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
     load();
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, [projectId]); // eslint-disable-line
+
+  // Load existing project description
+  useEffect(() => {
+    getProject(projectId).then((res) => {
+      setDescription(res.data.description || "");
+    }).catch(() => {});
+  }, [projectId]);
+
+  const handleDescriptionChange = useCallback((val: string) => {
+    setDescription(val);
+    setDescSaved(false);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(async () => {
+      setDescSaving(true);
+      try {
+        await updateProject(projectId, { description: val });
+        setDescSaved(true);
+        setTimeout(() => setDescSaved(false), 2500);
+      } catch {}
+      setDescSaving(false);
+    }, 900);
+  }, [projectId]);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -124,15 +150,21 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
       const poll = () => {
         getDocuments(projectId).then((res) => {
           setDocs(res.data);
-          if (res.data.some((d: Doc) => d.status === "processing" || d.status === "uploaded")) {
+          const stillProcessing = res.data.some((d: Doc) => d.status === "processing" || d.status === "uploaded");
+          if (stillProcessing) {
             pollRef.current = window.setTimeout(poll, 2500);
           } else {
             setGenerating(false);
             onProcessed();
           }
-        }).catch(() => setGenerating(false));
+        }).catch(() => { setGenerating(false); onProcessed(); });
       };
-      pollRef.current = window.setTimeout(poll, 1500);
+      // If no docs, just wait a fixed time for AI to finish then navigate
+      if (docs.length === 0) {
+        pollRef.current = window.setTimeout(() => { setGenerating(false); onProcessed(); }, 15000);
+      } else {
+        pollRef.current = window.setTimeout(poll, 1500);
+      }
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || "Failed to start generation";
       setGenerateError(String(msg));
@@ -186,6 +218,35 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
 
   return (
     <div className="doc-control">
+      {/* ── Project Brief ── */}
+      <div className="project-brief-card">
+        <div className="project-brief-header">
+          <div className="project-brief-icon">💬</div>
+          <div>
+            <div className="project-brief-title">Project Brief</div>
+            <div className="project-brief-subtitle">
+              Describe your project to help the AI generate a more accurate programme — building type, number of floors, key trades, programme constraints, milestones, or anything else relevant.
+            </div>
+          </div>
+          <div className="project-brief-save-indicator">
+            {descSaving && <span className="brief-saving">Saving…</span>}
+            {descSaved && !descSaving && <span className="brief-saved">✓ Saved</span>}
+          </div>
+        </div>
+        <textarea
+          className="project-brief-input"
+          placeholder="e.g. 12-storey mixed-use residential tower in Melbourne CBD. Basement car park (3 levels), ground floor retail, levels 1–12 apartments. Key milestones: structure complete by June 2026, practical completion October 2026. Builder: ABC Constructions. Subcontractors include XYZ Concreting, Smith Electrical, Jones Mechanical."
+          value={description}
+          onChange={(e) => handleDescriptionChange(e.target.value)}
+          rows={4}
+        />
+        {!description && (
+          <div className="project-brief-tip">
+            The AI will use this along with your uploaded documents. You can generate a programme from the brief alone even without documents.
+          </div>
+        )}
+      </div>
+
       {/* ── Upload Zone ── */}
       <div
         className={`drop-zone ${dragOver ? "drop-zone-active" : ""} ${uploading ? "drop-zone-uploading" : ""}`}
@@ -268,7 +329,7 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
       )}
 
       {/* ── Generate / Action Bar ── */}
-      {docs.length > 0 && (
+      {(docs.length > 0 || description.trim()) && (
         <div className="doc-action-bar">
           {(isProcessing || generating) ? (
             <div className="doc-analysing-row">
@@ -283,7 +344,7 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
                 <button
                   className="btn btn-primary"
                   onClick={handleGenerate}
-                  disabled={processedCount === 0}
+                  disabled={processedCount === 0 && !description.trim()}
                 >
                   Generate Programme
                 </button>
@@ -297,8 +358,8 @@ export default function DocumentUpload({ projectId, onProcessed }: Props) {
                     Delete Failed ({errorCount + cancelledCount})
                   </button>
                 )}
-                {processedCount === 0 && (
-                  <span className="doc-hint-text">Wait for documents to finish processing</span>
+                {processedCount === 0 && !description.trim() && (
+                  <span className="doc-hint-text">Add a project brief or upload documents to generate</span>
                 )}
               </div>
             </>

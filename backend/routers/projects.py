@@ -17,6 +17,7 @@ class ProjectCreate(BaseModel):
     client: Optional[str] = None
     revision: Optional[str] = "REV 1"
     working_days: Optional[int] = 6
+    description: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -26,6 +27,7 @@ class ProjectUpdate(BaseModel):
     revision: Optional[str] = None
     status_date: Optional[str] = None
     working_days: Optional[int] = None
+    description: Optional[str] = None
 
 
 def _project_row(p: Project, activity_count: int) -> dict:
@@ -37,6 +39,7 @@ def _project_row(p: Project, activity_count: int) -> dict:
         "revision": p.revision,
         "status_date": p.status_date,
         "working_days": p.working_days,
+        "description": p.description,
         "activity_count": activity_count,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
@@ -91,6 +94,7 @@ def get_project(
         "revision": project.revision,
         "status_date": project.status_date,
         "working_days": project.working_days,
+        "description": project.description,
         "created_at": project.created_at.isoformat() if project.created_at else None,
     }
 

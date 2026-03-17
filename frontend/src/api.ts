@@ -23,6 +23,7 @@ export interface Project {
   revision?: string;
   status_date?: string;
   working_days?: number;
+  description?: string;
   activity_count?: number;
 }
 
@@ -60,6 +61,7 @@ export const getMe = () => api.get<AuthUser>("/api/auth/me");
 
 // Projects
 export const getProjects = () => api.get<Project[]>("/api/projects");
+export const getProject = (id: number) => api.get<Project>(`/api/projects/${id}`);
 export const createProject = (data: Partial<Project>) => api.post<Project>("/api/projects", data);
 export const updateProject = (id: number, data: Partial<Project>) => api.put(`/api/projects/${id}`, data);
 export const deleteProject = (id: number) => api.delete(`/api/projects/${id}`);
