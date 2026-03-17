@@ -137,6 +137,7 @@ def _load_api_key() -> str:
 
 def process_document(doc_id: int, project_id: int):
     from database import SessionLocal, Document, Project, Activity
+    import traceback
     db = SessionLocal()
     try:
         doc = db.query(Document).filter(Document.id == doc_id).first()
@@ -146,27 +147,40 @@ def process_document(doc_id: int, project_id: int):
         doc.status = "processing"
         db.commit()
 
-        # Extract text from PDF
-        if doc.file_path.lower().endswith(".pdf"):
-            text = extract_pdf_text(doc.file_path)
-        else:
-            text = ""
+        # Extract text from PDF — mark error only if this step fails
+        try:
+            if doc.file_path.lower().endswith(".pdf"):
+                text = extract_pdf_text(doc.file_path)
+            else:
+                text = ""
+            doc.extracted_text = text[:200000]  # Store first 200k chars
+            db.commit()
+        except Exception as e:
+            print(f"PDF extraction failed for doc {doc_id}: {e}\n{traceback.format_exc()}")
+            doc.status = "error"
+            db.commit()
+            return
 
-        doc.extracted_text = text[:200000]  # Store first 200k chars
-        db.commit()
-
-        # Generate/update programme from all documents
-        generate_programme_from_all_docs(project_id, db)
-
+        # Mark as processed regardless of whether AI generation succeeds
         doc.status = "processed"
         db.commit()
 
+        # Generate/update programme — failure here does not affect doc status
+        try:
+            generate_programme_from_all_docs(project_id, db)
+        except Exception as e:
+            print(f"AI generation error for project {project_id}: {e}\n{traceback.format_exc()}")
+
     except Exception as e:
-        doc = db.query(Document).filter(Document.id == doc_id).first()
-        if doc:
-            doc.status = "error"
-            db.commit()
-        print(f"Error processing document {doc_id}: {e}")
+        import traceback as tb
+        print(f"Unexpected error processing document {doc_id}: {e}\n{tb.format_exc()}")
+        try:
+            doc = db.query(Document).filter(Document.id == doc_id).first()
+            if doc and doc.status == "processing":
+                doc.status = "error"
+                db.commit()
+        except Exception:
+            pass
     finally:
         db.close()
 
@@ -223,9 +237,12 @@ def generate_programme_from_all_docs(project_id: int, db):
         prompt = _build_generation_prompt(combined_text, doc_summaries)
 
     api_key = _load_api_key()
-    client = anthropic.Anthropic(api_key=api_key)
+    if not api_key:
+        print(f"ANTHROPIC_API_KEY not set — skipping AI generation for project {project_id}")
+        return
 
     try:
+        client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
             model="claude-opus-4-6",
             max_tokens=16000,
@@ -267,7 +284,8 @@ def generate_programme_from_all_docs(project_id: int, db):
             print(f"Generated {len(activities_data)} activities for project {project_id}")
 
     except Exception as e:
-        print(f"AI programme generation error: {e}")
+        import traceback
+        print(f"AI programme generation error for project {project_id}: {e}\n{traceback.format_exc()}")
 
 
 def _build_extraction_prompt(text: str, doc_names: list) -> str:
