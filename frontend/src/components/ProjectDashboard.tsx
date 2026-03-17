@@ -65,14 +65,14 @@ export default function ProjectDashboard({ onOpen, user, onLogout }: Props) {
           )}
           <h1>Construction Programme Manager</h1>
           <p>
-            Upload your project documents — drawings, specifications, schedules and contracts.
-            The AI reads and analyses everything, then generates a detailed construction programme.
+            Upload drawings, specs, contracts and schedules — the AI reads every document
+            in detail and generates a fully structured construction programme.
           </p>
           <div className="hero-features">
-            <span className="hero-feature"><span className="hero-feature-dot" />Upload PDFs, drawings & specs</span>
+            <span className="hero-feature"><span className="hero-feature-dot" />Upload PDFs &amp; drawings</span>
             <span className="hero-feature"><span className="hero-feature-dot" />AI analyses all documents</span>
-            <span className="hero-feature"><span className="hero-feature-dot" />Generates programme by zone & trade</span>
-            <span className="hero-feature"><span className="hero-feature-dot" />Export to Excel or MS Project</span>
+            <span className="hero-feature"><span className="hero-feature-dot" />Programme by zone &amp; trade</span>
+            <span className="hero-feature"><span className="hero-feature-dot" />Export to Excel / MS Project</span>
           </div>
         </div>
       </div>
@@ -82,9 +82,9 @@ export default function ProjectDashboard({ onOpen, user, onLogout }: Props) {
         <div className="dashboard-body-inner">
         <div className="dashboard-actions">
           <div className="dashboard-section-title">
-            {projects.length > 0 ? `${projects.length} Project${projects.length > 1 ? "s" : ""}` : "Projects"}
+            {projects.length > 0 ? `${projects.length} Project${projects.length > 1 ? "s" : ""}` : "Your Projects"}
           </div>
-          <button className="btn btn-primary btn-lg" onClick={() => setShowNew(true)}>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)}>
             + New Project
           </button>
         </div>
@@ -93,14 +93,14 @@ export default function ProjectDashboard({ onOpen, user, onLogout }: Props) {
           <div className="loading">Loading projects...</div>
         ) : projects.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">📁</div>
+            <div className="empty-icon">🏗</div>
             <h2>No projects yet</h2>
             <p>
-              Create your first project, then upload all your project documents.<br />
-              The AI will read and analyse everything to generate your programme.
+              Create your first project, upload your documents, and the AI will
+              generate a full construction programme automatically.
             </p>
             <button className="btn btn-primary btn-lg" onClick={() => setShowNew(true)}>
-              Create First Project
+              + Create First Project
             </button>
           </div>
         ) : (

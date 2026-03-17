@@ -203,26 +203,28 @@ export default function App() {
         <button className="nav-back" onClick={() => { setView("dashboard"); setCurrentProject(null); setActivities([]); setSelectedActivity(null); }}>
           ← Projects
         </button>
+
         <div className="nav-project">
           <span className="nav-project-name">{currentProject?.name}</span>
           {currentProject?.revision && <span className="nav-project-rev">{currentProject.revision}</span>}
         </div>
 
-        <div className="nav-stats">
-          <div className="stat"><span className="stat-val">{activities.length}</span><span className="stat-label">Activities</span></div>
-          <div className="stat"><span className="stat-val critical-text">{criticalCount}</span><span className="stat-label">Critical</span></div>
-          <div className="stat"><span className="stat-val milestone-text">{milestoneCount}</span><span className="stat-label">Milestones</span></div>
-          <div className="stat"><span className="stat-val">{avgComplete}%</span><span className="stat-label">Complete</span></div>
-        </div>
+        {activities.length > 0 && (
+          <div className="nav-stats">
+            <div className="stat"><span className="stat-val">{activities.length}</span><span className="stat-label">Activities</span></div>
+            <div className="stat"><span className="stat-val critical-text">{criticalCount}</span><span className="stat-label">Critical</span></div>
+            <div className="stat"><span className="stat-val milestone-text">{milestoneCount}</span><span className="stat-label">Milestones</span></div>
+            <div className="stat"><span className="stat-val">{avgComplete}%</span><span className="stat-label">Complete</span></div>
+          </div>
+        )}
 
         <div className="nav-actions">
-          <span className="nav-user">{authUser?.email}</span>
-          <button className="btn btn-sm btn-ghost" onClick={handleLogout}>Sign out</button>
-          <button className="btn btn-sm btn-ghost" onClick={handlePrint} title="Print A3 Landscape">
-            🖨 Print
-          </button>
-          <button className="btn btn-sm btn-secondary" onClick={handleActivityAdd}>+ Activity</button>
-          <button className="btn btn-sm btn-secondary" onClick={handleAddMilestone}>◆ Milestone</button>
+          {mainTab === "gantt" && (
+            <>
+              <button className="btn btn-sm btn-secondary" onClick={handleActivityAdd}>+ Activity</button>
+              <button className="btn btn-sm btn-secondary" onClick={handleAddMilestone}>◆ Milestone</button>
+            </>
+          )}
           <div className="export-wrapper">
             <button className="btn btn-sm btn-primary" onClick={() => setExportMenu((v) => !v)}>
               Export ▾
@@ -235,31 +237,27 @@ export default function App() {
                 <button className="export-item" onClick={handleExportMSProject}>
                   <span>📅</span> Export to MS Project (.xml)
                 </button>
+                <div className="export-divider" />
+                <button className="export-item" onClick={handlePrint}>
+                  <span>🖨</span> Print A3 Landscape
+                </button>
               </div>
             )}
           </div>
+          <button className="btn btn-sm btn-ghost" onClick={handleLogout}>Sign out</button>
         </div>
       </nav>
 
       {/* ── Main Tabs ───────────────────────────────────────────── */}
       <div className="main-tabs">
-        <button
-          className={`main-tab ${mainTab === "documents" ? "active" : ""}`}
-          onClick={() => setMainTab("documents")}
-        >
-          📂 Documents
+        <button className={`main-tab ${mainTab === "documents" ? "active" : ""}`} onClick={() => setMainTab("documents")}>
+          Documents
         </button>
-        <button
-          className={`main-tab ${mainTab === "gantt" ? "active" : ""}`}
-          onClick={() => setMainTab("gantt")}
-        >
-          📅 Programme
+        <button className={`main-tab ${mainTab === "gantt" ? "active" : ""}`} onClick={() => setMainTab("gantt")}>
+          Programme {activities.length > 0 && <span style={{ fontSize: 11, fontWeight: 500, color: mainTab === "gantt" ? "#2563eb" : "#9ca3af", marginLeft: 4 }}>({activities.length})</span>}
         </button>
-        <button
-          className={`main-tab ${mainTab === "summary" ? "active" : ""}`}
-          onClick={() => setMainTab("summary")}
-        >
-          📋 Summary
+        <button className={`main-tab ${mainTab === "summary" ? "active" : ""}`} onClick={() => setMainTab("summary")}>
+          Summary
         </button>
       </div>
 
