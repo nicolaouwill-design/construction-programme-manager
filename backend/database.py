@@ -10,7 +10,15 @@ DATABASE_URL = os.environ.get(
     f"sqlite:///{BASE_DIR}/construction_program.db"
 )
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Railway injects DATABASE_URL as postgres:// which SQLAlchemy 2.x doesn't recognise
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
